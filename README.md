@@ -1,168 +1,217 @@
 # EpistemicBERT
 
-A BERT-based model that measures **epistemic uncertainty as a structurally decomposable property**, not as a proxy for prediction failure. Instead of collapsing “the model is unsure” into a single confidence score, EpistemicBERT factorizes uncertainty into six interpretable axes, each grounded in an independent source.
+A BERT-based model that treats **epistemic uncertainty as a structurally decomposable
+property of the input**, not as a proxy for prediction failure. Instead of collapsing
+"the model is unsure" into a single confidence score, EpistemicBERT factorizes the
+epistemic state into six interpretable axes, each grounded in an independent
+measurement source.
 
-> **v2 (current).** All three uncertainty axes are now sourced from task-independent signals (token / layer / attention) and stay identifiable across SNLI, MNLI, **and adversarial ANLI** — even where classification accuracy collapses to ~0.41. This resolves v1’s one remaining weakness, where the manifold-based `ambiguity` leaked into the evidence plane on ANLI.
+> **v2.1 (current). Human-evaluation stage (VitaminC).** v2's apparent success — the six
+> axes "typing" confident errors (`ignorance` dominating, 55–75% of cases) — turned out to
+> be **gold-label leakage**: re-evaluating against gold-independent human judgments of
+> evidence-sufficiency collapsed the apparent signal from AUROC 0.718 to 0.376–0.585 (near
+> chance in the well-powered stratum). The project has been reframed around this finding:
+> not "the model fails," but **"standard UQ evaluation on fact-verification conflates two
+> different constructs (NLI entailment vs. human evidence-sufficiency), and confounds the
+> second with leakage from the first."** See "Human-Evaluation Stage" below for the full
+> arc.
+>
+> **v2 → v2.1 changelog:** v2 established axis identifiability across SNLI/MNLI/ANLI
+> (unchanged, still valid — see "NLI Stage" below). v2.1 adds the full VitaminC
+> human-relabeling study: the leakage diagnosis, blind-protocol codebook, axis-level and
+> ensemble-level failure mechanisms, two v3-prototype frame-check attempts (spaCy/GLiNER),
+> and an open question about gold-annotator page-context access. Status: test-retest κ
+> pending before the resulting paper is submission-ready.
 
 ## Core Idea
 
-Meaning is treated as a *field* produced by two independent evidence streams — **support** and **counter**. From this field, six epistemic axes are derived:
+Meaning is treated as a *field* produced by two evidence streams — **support** and
+**counter** — read off a claim/evidence pair. From this field, six epistemic axes are
+derived:
 
-|Group                                |Axis           |Question it answers                                      |
-|-------------------------------------|---------------|---------------------------------------------------------|
-|**Evidence plane** (2D)              |`truth`        |Is one interpretation dominant?                          |
-|                                     |`error`        |Is the opposing evidence dominant?                       |
-|                                     |`contradiction`|Are conflicting evidences simultaneously strong?         |
-|**Uncertainty sources** (independent)|`novelty`      |Is the input outside the model’s world (first time seen)?|
-|                                     |`ambiguity`    |Are multiple interpretations similarly plausible?        |
-|                                     |`ignorance`    |Is there insufficient information to judge?              |
+| Group | Axis | Question it answers |
+|-------|------|---------------------|
+| **Evidence plane** (2D) | `truth` | Does the evidence support the claim? |
+| | `error` | Does the evidence refute the claim? |
+| | `contradiction` | Are support and counter simultaneously strong? |
+| **Uncertainty sources** (independent) | `novelty` | Is the input outside the model's world (first seen)? |
+| | `ambiguity` | Are multiple interpretations similarly plausible? |
+| | `ignorance` | Is there insufficient/misaligned evidence to judge? |
 
-The three evidence-plane axes form a 2D coordinate system (they are *expected* to be mutually predictable). The three uncertainty axes are designed to be **mutually independent** — each measured from a structurally different source so that no axis is a reparameterization of another.
+The three evidence-plane axes form a 2D coordinate system (they are *expected* to be
+mutually predictable). The three uncertainty axes are designed to be **mutually
+independent** and, crucially, **independent of the task** — each measured from a
+structurally different source so that no axis is a reparameterization of another, and so
+that none inherits the classification signal.
 
-## Why Source Separation Matters
+## Why Source Location Matters
 
-The central design principle: **an uncertainty axis is only robust if its source is independent of the others — and of the task itself.** Penalty-based decorrelation (adding loss terms to push correlations down) was repeatedly found to *kill* axes rather than disentangle them — a constant output trivially has zero correlation with everything. The working approach instead gives each axis a distinct, task-free measurement source:
+The central design principle, established across the NLI stage and confirmed again
+later: **an uncertainty axis is only robust if its measurement source lies outside the
+classification pathway.** Penalty-based decorrelation was repeatedly found to *kill* axes
+rather than disentangle them. The working approach gives each axis a distinct source the
+classification gradient does not flow through:
 
-|Axis                               |Source                                                                               |Task-independent?            |
-|-----------------------------------|-------------------------------------------------------------------------------------|-----------------------------|
-|`novelty`                          |**token rarity** — `-log` frequency against the training vocabulary                  |yes — token statistics       |
-|`ambiguity`                        |**layer disagreement** — directional variance of `[CLS]` across the final BERT layers|yes — representation geometry|
-|`ignorance`                        |**attention dispersion** — entropy of the final-layer attention distribution         |yes — attention structure    |
-|`truth` / `error` / `contradiction`|**stream geometry** — `support`/`counter` margin, energy, agreement                  |(evidence plane)             |
+| Axis | Source | Outside the classification pathway? |
+|------|--------|-------------------------------------|
+| `novelty` | **token rarity** — `-log` frequency against the running training vocabulary | yes |
+| `ignorance` | **cross-attention alignment** — claim→evidence attention mass, split at `[SEP]` | yes |
+| `ambiguity` | **layer disagreement** — directional variance of `[CLS]` across final layers | yes |
+| `truth`/`error`/`contradiction` | **stream geometry** — support/counter margin, energy, agreement | (learned plane) |
 
-`contradiction` is defined as stream-level conflict: `energy x (1 - agreement)`, high only when both streams are strong *and* opposed. `ambiguity` is defined as non-convergence of interpretation — several BERT layers pointing `[CLS]` in different directions — which is conceptually distinct from contradiction (multiple readings *without* opposition).
+All three uncertainty axes are **detached** from the classification gradient.
 
-### v1 -> v2: making ambiguity task-free
+## NLI Stage (SNLI / MNLI / ANLI): identifiability
 
-In v1, `ambiguity` was the top1-top2 prototype gap inside the dual-stream manifold. Because the manifold is built from the classification signal, `ambiguity` degraded when the classifier could not separate classes:
+Before fact-verification, the axes were validated for **identifiability** — fit a linear
+model predicting each axis from the other five; low R2 means the axis carries
+non-redundant information.
 
-```
-ambiguity identifiability (R2, lower = more independent)
-                    SNLI    MNLI    ANLI
-v1 (manifold gap)   0.41    0.20    0.74   <- collapses on adversarial ANLI
-v2 (layer disagree) 0.42    0.25    0.16   <- holds across all three
-```
+| Axis | SNLI | MNLI | ANLI | Source |
+|------|------|------|------|--------|
+| `novelty` | 0.03 | 0.06 | 0.10 | token rarity |
+| `ambiguity` | 0.42 | 0.25 | 0.16 | layer disagreement |
+| `ignorance` | 0.01 | 0.08 | 0.08 | attention dispersion |
 
-Layer-to-layer representation disagreement is *orthogonal to classification success*: even when the final layer cannot decide a label (ANLI, acc ~ 0.41), whether the intermediate layers converge is a separate signal. Moving `ambiguity` to this source kept it independent on ANLI without touching SNLI/MNLI behavior.
+**The ANLI column is the key result.** ANLI is adversarially constructed; accuracy there
+collapses to ~0.41 (barely above chance). All three axes remain independent regardless —
+demonstrating the axes are not artifacts of classification success. (An earlier
+manifold-based `ambiguity` leaked badly on ANLI, R2=0.74; moving the source to
+layer-disagreement fixed it to 0.16. A larger backbone, RoBERTa, *raised* the old leak to
+0.83, ruling out capacity as the explanation — it was a source-design problem.)
 
-A side effect: with `ambiguity` removed from the manifold, `contradiction` now owns the stream geometry outright and separates much more sharply by label (e.g. on SNLI, `contradiction` reaches ~0.93 on contradiction-labeled inputs vs ~0.33 elsewhere, with `truth<->contradiction` correlation near 0).
+A semantic probe additionally found `ignorance` fires on information deficit and stays
+**flat on calibration** (does not rise on wrong predictions — it measures missing
+information, not error), and rises **+0.389** under OOD (RTE vs. ID) — the largest move
+of any axis. This independence/OOD-robustness result is later load-bearing: it shows the
+axes are well-designed, which sharpens (rather than excuses) the negative finding below.
 
-### Design lessons learned
+## Human-Evaluation Stage (VitaminC): does UQ track human judgment?
 
-- **`ignorance` != predictive entropy.** Classifier predictive entropy measures *“the classifier is confused,”* which fires on novel-but-clear inputs and overlaps with novelty. Attention dispersion measures *“the input lacks information,”* which is what ignorance should mean.
-- **`novelty` cannot live in the task representation `z`.** Because `z = proj(BERT)` is trained with the NLI objective, it is optimized to *discard* topical novelty (irrelevant to the label). Density estimates in `z`-space therefore measure “distance from the typical NLI sentence,” not semantic novelty. Token-level rarity sidesteps this entirely.
-- **`ambiguity` cannot live in the manifold.** Same root cause — the manifold is a function of the classification signal, so a manifold-based axis inherits task dependence and breaks under distribution shift / adversarial inputs. Layer disagreement is the task-free replacement.
-- **Bigger backbones do not fix task-dependent sources.** Swapping DistilBERT for RoBERTa-base *raised* `ambiguity`’s ANLI leakage (0.74 -> 0.83) despite higher train accuracy — confirming the leak was a source-design problem, not a capacity problem.
+**The question.** Fact-verification gold labels (SUPPORTS/REFUTES/NEI) encode an
+NLI-style entailment relation. This project asks a different question: does a human,
+given only the claim and evidence, find the evidence **sufficient to decide** the claim
+at all? These can diverge — gold can mark a frame-mismatched pair "REFUTES" by reading
+surface content conflict, while a human notices the evidence doesn't even refer to the
+same entity as the claim.
 
-## Architecture
+**The arc:**
 
-```
-input_ids -> DistilBERT -> CLS -> proj -> z --+--> PrototypeManifold (dual-stream)
-               |  |                           |       support / counter   (evidence plane)
-               |  |                           |
-               |  |                           +--> TokenNovelty   (token rarity)
-               |  |
-               |  +--> hidden_states -> LayerAmbiguity (layer disagreement)
-               |
-               +--> attention -> AttentionIgnorance (attention dispersion)
-                                                     |
-  support, counter, novelty, ambiguity, ignorance --+--> EpistemicFieldClassifier
-                                                            truth / error / contradiction
-                                                            field (6 axes)
-                                                                  |
-                       field_proj(field) + z_proj(z) ------------>  logits
-```
+1. **Apparent success, then leakage.** Confident errors (`conf > 0.95`, wrong vs. gold;
+   n=219 across 3 seeds) were first scored against gold-visible labels: `error` AUROC
+   0.718, looked like real diagnostic signal.
+2. **Blind relabeling breaks it.** Re-annotating the same 219 cases with gold and model
+   prediction hidden, using a frame-based codebook (Step 1: do claim/evidence share an
+   anchor? Step 2: any predicate/commitment/target mismatch despite anchor? Step 3:
+   decisive or not?) yields type counts I=123/M=51/A=45. Cramér's V between gold and
+   this human type is **0.264** (bias-corrected) — gold explains almost none of the
+   human judgment (gold-conditioned majority accuracy 60.3% vs. 56.2% base rate, +4.1pp).
+   Under the old gold-visible labels, NEI→I was 0.98 and non-NEI→M was 0.99 — i.e. human
+   labels were a near-restatement of gold until the protocol went blind.
+3. **The leakage explains the "success."** Re-scoring the *same* signal against
+   gold-independent human labels: `error` AUROC drops 0.718 → 0.376; in the
+   well-powered gold=REFUTES stratum (n=113), `ignorance` AUROC = 0.515 — chance.
+   Apparent signal under small/imbalanced strata (SUPPORTS, NEI) was shown via bootstrap
+   CI + raw-distribution inspection to be sample-size artifacts, not real.
+4. **Axis-level diagnosis: two distinct failure mechanisms, not one.** Extracting raw
+   per-id axis scores (never previously saved; required a fresh forward pass) showed:
+   - `novelty`: std=0.048 (smallest of the three), AUROC=0.484 — fails because its
+     construct (lexical rarity vs. training vocabulary) doesn't apply when confident
+     errors are drawn in-domain from the same VitaminC lexical distribution. Not a design
+     flaw — novelty's construct was already validated correctly on RTE-as-OOD (+0.389,
+     above). Wrong evaluation stage, not a broken axis.
+   - `ambiguity` (std=0.181, AUROC=0.555) and `ignorance` (std=0.185, AUROC=0.585): both
+     have ~4x novelty's variance, so insufficient variance does *not* explain their
+     failure — they vary plenty, but the variation is orthogonal to claim/evidence
+     referent-matching (frame). A clean, well-formed sentence about the wrong entity is
+     neither informationally sparse (ignorance's construct) nor representationally
+     non-convergent (ambiguity's construct) — frame sits outside what either axis
+     measures.
+5. **Ensemble does not fix it: bias, not variance.** All three seeds (42/7/123) share the
+   same architecture/six-axis design/gold supervision; 3-seed exact-prediction-agreement
+   is **highest** on human-Insufficient cases (0.935, vs. 0.889 for A and 0.784 for M) —
+   the signature of a shared structural blind spot, not seed-dependent noise. Averaging
+   models that agree 93.5% of the time on exactly the cases that matter cancels nothing.
+6. **v3 prototyping: fixed-schema entity matching is insufficient (not proven impossible).**
+   Tried two independent frame-check prototypes (claim/evidence entity-overlap as a
+   referent-matching signal): spaCy NER (8-label subset) and GLiNER zero-shot NER (8
+   custom labels). Both showed the same coverage-failure mechanism — when an input's
+   relevant entity type falls outside the chosen schema (e.g., "Treaty on the
+   Prohibition of Nuclear Weapons" — no LAW/document-title label in either schema), both
+   sides return zero entities, "no overlap" is returned by construction, and
+   `frame_uncertain` is inflated regardless of whether frame genuinely mismatches.
+   Resulting AUROC: spaCy 0.545 (0.573 excluding 5 confirmed data-corruption cases —
+   VitaminC's own Wikipedia lead-sentence subject omission, verified against the
+   original `tals/vitaminc` data); GLiNER 0.488 (0.521 excluding corruption) — *worse*,
+   diagnosed to 13.7% empty-entity-extraction rate in M cases (17x the I-case rate),
+   tracing to the specific 8-label schema's blind spots. **This is evidence that two
+   partial schemas are insufficient, not proof that fixed-schema extraction is
+   fundamentally impossible** — the full available schema space (e.g., complete
+   OntoNotes incl. LAW, or a substantially larger GLiNER label list) was not exhausted.
+   Stopped here on diminishing-returns grounds, not because the question is resolved.
 
-`TokenNovelty`, `LayerAmbiguity`, and `AttentionIgnorance` are all **detached** from the classification gradient — their statistics track the data distribution, not the loss. This is what keeps them task-independent.
+**Open question (unresolved, disclosed not assumed):** whether VitaminC's original gold
+annotators saw Wikipedia `page`-title context (which would disambiguate subject-omitted
+evidence) during labeling is not documented in the original paper (Schuster et al., NAACL
+2021) or the public codebase, and could not be confirmed via available sources. FEVER
+(VitaminC's predecessor) explicitly permitted this; VitaminC's own practice is
+undocumented. Flagged as a limitation; mitigation (re-relabeling a subset with page-title
+visible) proposed as future work.
 
-## Identifiability Results (v2)
+**The throughline, stated once:** independence (ANLI) and reproducibility
+(ensemble-resistant bias / planned test-retest κ) are *necessary* properties of a good
+measurement instrument — but neither implies the instrument measures the *right*
+construct. Well-designed, task-robust, OOD-sensitive axes can still fail to align with
+human evidence-sufficiency. The contribution is the construct separation and the blind
+protocol that makes it visible, not a claim that uncertainty quantification is broken.
 
-For each axis, fit a linear model predicting it from the other five and report R2. Plane axes are *expected* to be predictable (coordinates); uncertainty axes should be independent (low R2).
+## v3 Candidate Directions (schema-free alternatives)
 
-|Axis                           |SNLI       |MNLI       |ANLI       |Source              |
-|-------------------------------|-----------|-----------|-----------|--------------------|
-|`novelty`                      |0.03       |0.06       |0.10       |token rarity        |
-|`ambiguity`                    |0.42       |0.25       |0.16       |layer disagreement  |
-|`ignorance`                    |0.01       |0.08       |0.08       |attention dispersion|
-|`truth`/`error`/`contradiction`|plane-coord|plane-coord|plane-coord|geometry            |
-
-**The key result is the ANLI column.** ANLI is adversarially constructed; DistilBERT validation accuracy there is ~0.41 (barely above chance). All three uncertainty axes nonetheless remain independent — demonstrating the central claim that these axes are **not artifacts of prediction success**.
-
-### Semantic validation
-
-A targeted probe distinguishes three input types — **G1** (novel, well-specified, e.g. *“Zeta-7 decays into mirror-charged leptons”*), **G2** (underspecified, e.g. *“something happened somewhere”*), **G3** (ordinary) — to confirm each axis fires on the right phenomenon:
-
-- `novelty` fires highest on **G1** (rare vocabulary) and is positive on OOD — captures “first seen.”
-- `ignorance` fires highest on **G2** (information deficit) and is *flat* on calibration (does not rise on wrong predictions — it measures missing information, not error).
-- `ambiguity` fires highest on **neutral** labels and on **G2** — tracks genuine interpretive non-convergence.
-
-## Usage
-
-```python
-model = EpistemicBERT(n_classes=3, n_prototypes=32, proj_dim=128)
-model.token_nov.set_special_tokens(tokenizer.all_special_ids)  # required
-
-logits, epistemic_out, diversity_loss = model(input_ids, attention_mask)
-
-epistemic_out["field"]          # (B, 6) the six-axis epistemic field
-epistemic_out["novelty"]        # per-axis scores
-epistemic_out["ambiguity"]
-epistemic_out["ignorance"]
-epistemic_out["dominant_type"]  # argmax axis label per sample (eval only)
-```
-
-`EpistemicBERT.__init__` requires `output_attentions=True` and `output_hidden_states=True` on the backbone config (set internally).
-
-### Training
-
-```python
-loss = (
-    0.3  * cross_entropy(logits, labels)        # secondary
-    + 1.0  * field_ranking_loss(field, labels)  # primary: ranks correct axis highest
-    + 0.2  * margin_loss(support, counter, labels)
-    + 0.1  * diversity_loss                      # prototype collapse prevention
-    + 0.03 * disentangle_loss(epistemic_out)     # light penalty, nov<->amb / amb<->ign only
-)
-```
-
-The disentangle penalty is kept *small* and narrow — structural source separation does the real work; the penalty is a minor regularizer, not the mechanism.
-
-### Diagnostics included
-
-- `identifiability_probe` — per-axis R2 and full correlation matrix
-- `evaluate_ood` — ID vs OOD axis means (RTE as OOD)
-- `evaluate_calibration` — axis means on correct vs wrong predictions
-- `novelty_ignorance_probe` — G1/G2/G3 separation test
-- `attention_entropy_probe` — validates the ignorance source
+1. **LLM-as-judge** for direct frame/entailment judgment — most likely to generalize
+   across the open-domain entity space, but reintroduces the exact validity problem this
+   project raises about LLM-based evaluation; would need its own small-sample
+   human-agreement check before use, not default trust.
+2. **Mention-span-based coreference** (fastcoref, AllenNLP coref) — treats all noun
+   phrases as candidate mentions rather than only schema-tagged spans; likely catches
+   both pronoun cases and out-of-schema titles without a label list.
+3. **Retrieval-augmented grounding** against an external KB instead of a closed schema —
+   not yet attempted.
 
 ## Requirements
 
 ```
 torch
 transformers
-datasets
+datasets        # tals/vitaminc, glue (RTE for OOD)
 scikit-learn
+pandas
+spacy / gliner  # v3 prototyping only
 tqdm
 ```
 
-Backbone defaults to DistilBERT; set the checkpoint path/name in `EpistemicBERT.__init__` and the tokenizer load. RoBERTa was tested for diagnosis (see lessons above) but DistilBERT is the v2 default.
-
 ## Known Limitations & Future Work
 
-- **Attention-source normalization is dataset/backbone-specific.** The EMA standardization in `AttentionIgnorance` can saturate (sigmoid -> ~1 for all inputs) when attention-entropy scale shifts, e.g. under RoBERTa or ANLI. Identifiability still passes, but the normalization parameters need re-tuning per setup.
-- **Plane structure loosens slightly in v2.** With `ambiguity` moved out of the manifold, `truth` R2 runs ~0.62-0.79 (vs ~0.88-0.99 in v1). Still plane-coord, but the evidence plane is marginally less tightly coupled — a side effect of the source change, not a defect.
-- **`novelty` measures lexical novelty only.** Token rarity catches unfamiliar *words* but not familiar words combined into novel *concepts* (e.g. “round square”). An n-gram / compositional extension is a natural next step.
-- **`ambiguity<->truth ~ 0.3-0.4` and `ambiguity<->contradiction ~ 0.3-0.55`** persist on SNLI/MNLI (near 0 on ANLI). Interpreted as genuine data structure (clear entailment = single interpretation; contradictory inputs are often also interpretively split), not measurement leakage, and deliberately not penalized.
+- **Single annotator.** Test-retest κ (time-gapped, codebook-only re-labeling) is the
+  current bottleneck before submission — it is the inference that rules out "the null
+  result is just annotation noise" rather than construct mismatch. Inter-annotator
+  agreement (second annotator, codebook-only, blind) is the planned extension.
+- **Gold-annotator page-context access is undocumented** (see above) — disclosed, not
+  resolved.
+- **`novelty` measures lexical novelty only**, validated on OOD (RTE) but not on
+  confident-errors drawn in-domain (wrong evaluation stage for this axis, not a defect).
+- **v3 frame-check is at the prototyping stage**, not integrated into the model; current
+  evidence rules out two fixed-schema approaches and ensembling as fixes, but does not
+  yet validate a working replacement.
 
-### Roadmap -> v3: downstream utility
+## Status (v2.1)
 
-v1 and v2 establish that the six axes are *separable and task-robust*. v3 should show they are *useful* — that decomposed uncertainty beats a single confidence score:
-
-- **Selective prediction.** Reject by `ignorance`/`ambiguity` and compare risk-coverage curves against single-entropy rejection.
-- **OOD detection.** Benchmark `novelty` (token-rarity) against standard baselines (MSP, Mahalanobis).
-- **Failure typing.** Show that high-`ambiguity` errors and high-`ignorance` errors are genuinely different failure modes, with examples.
-
-## Status
-
-- **v1** — six-axis identifiability established; `ambiguity` (manifold) task-dependent, leaks on ANLI.
-- **v2 (current)** — `ambiguity` moved to layer disagreement; all three uncertainty axes task-free and identifiable across SNLI, MNLI, and adversarial ANLI.
+- **v1/v2 — NLI stage** — six-axis identifiability established across SNLI/MNLI/ANLI;
+  uncertainty sources moved off the classification pathway and stay independent even
+  where accuracy collapses (~0.41 on ANLI).
+- **v2.1 — Human-evaluation stage (VitaminC, current)** — gold-leakage diagnosed and
+  corrected via blind relabeling (n=219, Cramér's V=0.264); UQ-human alignment falsified
+  in the well-powered stratum (ignorance AUROC 0.515, chance); axis-level and
+  ensemble-level failure mechanisms diagnosed; two v3 frame-check prototypes attempted
+  and found insufficient (not disproven in general). **Pending: test-retest κ** (the
+  remaining load-bearing inference before the negative-result/evaluation-methodology
+  paper is submission-ready).
