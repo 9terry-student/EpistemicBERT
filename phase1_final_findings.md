@@ -4,6 +4,27 @@
 **Date:** June 2026
 **Bottleneck for next phase:** human taxonomy reliability (test-retest κ) — NOT yet validated.
 
+> **CURRENT BOTTOM LINE (read this first — the sections below are a cumulative log; where an
+> early line and a later section appear to differ, the later/more-scoped statement wins).**
+> The original claim — that *explicit* uncertainty axes (novelty/ambiguity/ignorance)
+> diagnose human failure types — is **falsified**. A *post-hoc* analysis then revealed a
+> stronger pattern: human evidence-insufficiency is better reflected by **evidence-plane
+> collapse** (`-mean(truth,error,contradiction)`) than by explicit ignorance activation.
+> This diagnostic is semantically aligned, survives confidence residualization (I vs M
+> 0.681 → 0.620, using seed-aware `our_conf_fixed` after a confidence-reconstruction bug was
+> traced to `baseline_scores.csv` pooling three different seed checkpoints' rows — see
+> "Seed-aware confidence reconstruction"), and increases under synthetic evidence corruption
+> (P=0.868) — but it is **exploratory, not pre-registered**, and must be validated through
+> test-retest and second annotation before any confirmatory claim. Conventional UQ baselines
+> separate the labels only after *direction reversal*; that inversion is partly
+> confidence-mediated but not reducible to it. **The annotated subset's range restriction is
+> now directly measured, not just flagged:** its classifier-confidence mean (0.978) sits at
+> the ~87th percentile of the full 189,162-row validation confidence distribution — so every
+> result above describes the high-confidence-error regime, not full-validation ranking.
+> Net: the negative result for explicit uncertainty / conventional UQ stands; the positive
+> contribution is methodological (blind gold-independent relabeling) plus an exploratory
+> evidence-plane-collapse diagnostic, now reported on corrected, seed-matched confidence.
+
 ---
 
 ## The arc of this investigation (what happened, in order)
@@ -34,7 +55,13 @@
    - Crosstab (gold × human_type): NEI 21/33/5 (A/I/M), REFUTES 18/83/30, SUPPORTS 6/7/16
 
 6. **Re-evaluation with clean labels → original hypothesis FALSIFIED:**
-   All model-internal signals fail to separate human I/M (gold-independent).
+   All **pre-specified explicit uncertainty axes** (novelty/ambiguity/ignorance) fail to
+   robustly separate human I/M (gold-independent). [Refined later: a *post-hoc* composite,
+   `plane_collapse = -mean(truth,error,contradiction)`, shows moderate
+   semantically-aligned separation (I vs M 0.681) and is treated as an exploratory
+   diagnostic — see the 7th-axis / plane-collapse section below. This does not revive the
+   original explicit-uncertainty hypothesis; it is a separately-discovered evidence-plane
+   signal.]
 
 ---
 
@@ -53,7 +80,12 @@
 | mc_var | 0.385 | |
 | mc_ent | 0.339 | |
 
-**All near or below 0.5. No method separates human evidence-sufficiency judgment.**
+**All near or below 0.5. No *pre-specified* uncertainty signal robustly captures human
+evidence-sufficiency judgment.** (The strongest later-discovered aligned diagnostic is the
+post-hoc `plane_collapse` composite, I vs M 0.681 / 0.620 after seed-aware confidence
+residualization — exploratory, not pre-registered; detailed in the 7th-axis /
+plane-collapse section below. It does not contradict this line: these are the *explicit
+uncertainty axes and conventional UQ baselines*, which remain at/below chance here.)
 
 ### Per-gold AUROC (controlling for gold)
 | gold | n (I/M) | ignorance | error | truth | novelty |
@@ -77,7 +109,19 @@ Model predicts "ignorance" for most cases (138/219); human distribution is I/M/A
 ## What is FALSIFIED
 - "Uncertainty axes detect human epistemic failure types" — NOT supported.
 - "ignorance axis diagnoses evidence deficit" — NOT supported (0.572 overall, 0.504 in REFUTES).
-- "evidence-plane separates failure types" — was gold leakage (0.718 → 0.376 on clean labels).
+- "evidence-plane *classification* separates failure types" — was gold leakage (0.718 → 0.376
+  on clean labels). **Note the distinction from `plane_collapse` below:** the FALSIFIED claim
+  is that the evidence-plane axes, *as gold-trained classification outputs*, type human
+  failures (they did so only via leakage). The SEPARATE, later, post-hoc finding is that the
+  *magnitude collapse* of those same axes (`-mean(truth,error,contradiction)`) correlates
+  with human-I on clean labels (0.681). These are not contradictory: one is about the
+  axes' gold-leaked discriminative use, the other is an exploratory diagnostic on the
+  clean-relabeled subset, validated by label-free corruption sanity. The post-hoc finding
+  does not un-falsify the original claim. (Note: the 7th-axis section below also reports
+  "0.679 ± 0.002" for this same raw AUROC — that is a 3-seed-averaged-with-std statistic
+  from the original per-seed validation pass; 0.681 is the single pooled value from the
+  later seed-aware audit. The two are consistent, not conflicting; 0.681 is used elsewhere
+  in this document as the canonical raw figure.)
 
 ## What SURVIVES (the real contribution)
 1. **gold ≠ human epistemic judgment.** Human evidence-sufficiency judgments form a
@@ -85,10 +129,21 @@ Model predicts "ignorance" for most cases (138/219); human distribution is I/M/A
    are gold=REFUTES are often human-I (83/131), because the contradiction doesn't engage
    the claim's core predicate (frame mismatch: execution≠distribution, planned≠actualized,
    role≠event, write≠produce, etc.).
-2. **UQ–human gap.** In this evaluation setup and 219-item subset, no existing uncertainty
-   signal (6-axis, evidential DL, MC dropout) aligns with human evidence-sufficiency judgment.
+2. **UQ–human gap.** In this evaluation setup and 219-item subset, no *pre-specified*
+   uncertainty signal (explicit uncertainty axes, evidential DL, MC dropout) robustly
+   aligns with human evidence-sufficiency judgment in the expected direction. (Conventional
+   UQ baselines are discriminative only after *direction reversal*, and that inversion is
+   partly confidence-mediated — see plane-collapse section.)
 3. **Methodological:** standard UQ evaluation on fact-verification is contaminated by gold
    leakage; blind gold-independent relabeling separates genuine signal from artifact.
+4. **Exploratory diagnostic (post-hoc, not pre-registered):** human evidence-insufficiency
+   is better reflected by *evidence-plane collapse* (`-mean(truth,error,contradiction)`,
+   I vs M 0.681; 0.620 after seed-aware confidence residualization) than by explicit
+   `ignorance` activation. Semantically aligned, survives confidence residualization, and
+   rises under label-free synthetic corruption (P=0.868) — but exploratory, pending
+   test-retest /
+   second-annotator reliability validation. Framed as a *diagnostic contribution*, not a
+   revival of the original explicit-uncertainty hypothesis.
 
 ## Claim phrasing discipline
 - NOT "no method can ever do this."
@@ -608,3 +663,221 @@ a theoretical proof.
    label list, but still depends on the underlying parser's span/boundary quality.
 3. **Retrieval-augmented grounding** — ground claim/evidence entities against an external KB
    instead of a closed label schema; not attempted, flagged as a further future-work option.
+
+---
+
+## 7th axis (frame/anchor), plane-collapse, and inverse-UQ analysis (2026-06-20)
+
+This entry records the largest experimental block of the session: adding a schema-free
+7th `frame`/anchor axis, and the downstream discovery that the strongest
+semantically-aligned internal signal is evidence-plane collapse — not any explicit
+uncertainty axis.
+
+### Model change
+A 7th schema-free `frame`/anchor source was added (`frame_uncertainty_raw(claim,
+evidence)`): raw mention overlap (quoted titles, capitalized spans, numeric anchors,
+stopword/pronoun filtering), 0 = likely shared frame, 1 = likely broken frame. The field
+is now 7-dimensional `[truth, error, contradiction, novelty, ambiguity, ignorance,
+frame]`, but **logits still use only the original six learned axes** (`use_frame_in_logits
+= False`, classification on `field[:, :6]`). The 7th axis is a detached diagnostic probe,
+not a supervised classification feature — same detach discipline as the three uncertainty
+axes.
+
+### Anchor: independent and corruption-sensitive, but weak for human typing
+- **Identifiability (regressed against the original SIX axes only, excluding the 7th to
+  avoid double-counting):** R² = 0.0889 / 0.0857 / 0.1222 across seeds 42/7/123 =
+  **0.0989 ± 0.0202**. Anchor is low-redundancy / mostly independent from the six-axis
+  field (contrast: ambiguity-v1 manifold leak was R²=0.74).
+- **Label-free SNLI corruption sanity (n=1000):** P(corrupted > original) = 0.916; raw
+  delta mean 0.3705. Anchor reliably rises when evidence is synthetically corrupted.
+- **Human typing (219 subset):** I vs M AUROC = 0.559 (CI [0.478, 0.633], includes
+  chance); I vs A+M = 0.557 (CI includes chance). **Anchor is independent and
+  corruption-sensitive, but NOT a robust standalone human-failure-type classifier.**
+- Interpretation: this is the same "well-designed ≠ construct-valid" pattern seen for the
+  other axes, now reproduced on the 7th. Adding a frame axis does not recover human
+  evidence-sufficiency.
+
+### plane_collapse: strongest internal signal — but exploratory, not pre-registered
+Direct single-axis analysis showed the strongest separators of human labels were NOT the
+explicit uncertainty axes but the (inverted) evidence-plane axes (-contradiction 0.677,
+-truth 0.631, -error 0.618 on I vs M). This motivated a composite:
+
+  **plane_collapse = -mean(truth, error, contradiction)**
+
+3-seed results: I vs M = **0.679 ± 0.002**; I vs A+M = 0.621 ± 0.017; A vs M = 0.625 ±
+0.031. Within EpistemicBERT's own field this is the strongest semantically-aligned signal
+for human insufficiency — interpretation: insufficiency shows up as *suppression/collapse
+of the whole evidence plane* rather than as explicit `ignorance` activation.
+
+**Status discipline — this is a POST-HOC EXPLORATORY DIAGNOSTIC, not a pre-registered
+confirmatory hypothesis.** It was defined *after* seeing the direct-axis results, so it
+must NOT be written as a pre-registered main hypothesis. **However, it is not a pure
+cherry-pick, for three concrete reasons:** (1) truth/error/contradiction were a
+*pre-existing, pre-defined* evidence-plane group in the architecture, not a set chosen for
+this result; (2) the composite was defined *once* as the group's negative mean, not tuned
+over many candidate combinations; (3) it was then validated on a **label-free** SNLI
+corruption sanity check, independent of the 219 human labels:
+- SNLI n=1000, claim kept / evidence replaced by deranged-shuffle mismatch.
+- P(corrupted > original) = **0.868 ± 0.014** across 3 seeds; delta mean +0.0866 ± 0.0098.
+- I.e. plane_collapse rises under evidence mismatch even with no human labels involved.
+
+### Conventional UQ baselines are directionally INVERTED (within the confident-error subset)
+On the 219 confident-error subset, standard UQ baselines separate human labels only after
+*reversing* the expected direction (semantic expectation = higher uncertainty → more
+insufficiency; observed = the opposite):
+- evidential_u: semantic AUROC 0.268, **inverse 0.732** (I vs M, seed42)
+- mc_ent: semantic 0.352, **inverse 0.648**
+- mc_var: semantic 0.387, **inverse 0.613**
+
+Distribution check confirms direction: standard UQ baselines are *higher for M than I*
+(evidential_u I=0.180 vs M=0.260; mc_ent I=0.207 vs M=0.302), while field/anchor signals
+are higher for I than M. **This result is explicitly scoped to the confident-error subset
+— not a general claim about UQ on full data.**
+
+### Seed-aware confidence reconstruction (supersedes earlier naive residualization, 2026-06-21)
+**Earlier in this entry, `our_conf` residualization used the stored, unverified confidence
+column. That stored confidence was not reproducible from the seed42 checkpoint alone
+(mean abs diff ≈ 0.072, max ≈ 0.50). Root-caused: `baseline_scores.csv` pools
+confident-error rows from THREE checkpoints (seed 7: n=44, seed 42: n=63, seed 123: n=112,
+summing exactly to 219), not one. The same `raw_idx` can legitimately appear under
+multiple seeds (same input flagged as a confident error by more than one checkpoint) —
+this is not corruption.** `raw_idx` was independently verified correct (claim/evidence
+text match against `val_df.iloc[raw_idx]`: 219/219). The original 6-axis class (`z =
+self.proj(cls)`, `logits = field_proj(field) + z_proj(z)`, no extra activation) loaded
+`strict=True` with zero missing/unexpected keys for all three seed checkpoints.
+**Confidence reconstruction must be done per-`(seed, raw_idx)` pair, using each row's own
+seed checkpoint — not a single seed for all rows.** Doing so reproduces stored confidence
+exactly. The corrected value is denoted `our_conf_fixed` and replaces the earlier,
+improperly-matched confidence in all analyses below. (Note: this also means the diagnosis
+I gave in the prior turn — id-vs-raw_idx mismatch — was tested directly and **ruled out**;
+raw_idx was already correct. The actual cause, seed-pooling, is a different and more
+precise explanation. Recorded here so the false lead isn't silently dropped.)
+
+### Range restriction of the annotated subset (now measured directly, not just flagged)
+Using the seed-aware original 6-axis classifier, confidence was recomputed for the FULL
+validation set per seed (63,054 × 3 = 189,162 rows) and the 219 annotated rows located
+within that distribution:
+
+| | selected (n=219, pooled) | full validation (n=189,162, pooled) |
+|---|---|---|
+| mean | 0.978 | 0.755 |
+| median | 0.980 | 0.775 |
+| std | 0.014 | 0.189 |
+| % with conf ≥ 0.95 | 100% (by construction, conf_thresh=0.95) | 23.2% |
+
+Selected std is **7.4%** of full-validation std. The annotated subset's mean confidence
+sits at roughly the 87th percentile of the full-validation confidence distribution
+(pooled). **This confirms the subset is a strongly range-restricted high-confidence tail**
+— independently verified (not merely flagged as a theoretical risk). Per-seed numbers
+(7/42/123) are individually consistent with the pooled figures (percentiles 80–90%,
+std ratios 7.2–7.7%). **All UQ comparisons on the 219 subset must be read as conditional
+analyses within the high-confidence-error regime, not full-validation uncertainty-ranking
+claims.**
+
+### Confidence itself partly separates I/M, even within this regime
+Using `our_conf_fixed`: I vs M AUROC = **0.643** (n=174, I=123, M=51); I vs A+M = 0.626
+(n=219); A vs M = 0.525 (n=96) — confidence barely separates A from M, but does separate I
+from M even inside the already-narrow high-confidence band.
+
+### Corrected residualization (against `our_conf_fixed`, supersedes the naive-confidence numbers above)
+| score | raw best AUROC (direction) | residual best AUROC (direction) |
+|---|---|---|
+| evidential_u | 0.732 (lower → I) | 0.680 (lower resid. → I) |
+| mc_ent | 0.648 (lower → I) | 0.599 (lower resid. → I) |
+| mc_var | 0.613 (lower → I) | 0.509 (≈ chance) |
+| plane_collapse | 0.681 (higher → I) | 0.620 (higher resid. → I) |
+| anchor_normalized | 0.559 (higher → I) | 0.502 (≈ chance) |
+| ignorance | 0.585 (higher → I) | 0.561 (weak) |
+
+(Small shifts from the earlier-reported 0.685/0.637/0.501 to 0.680/0.620/0.509 reflect
+residualizing against the *correctly seed-matched* confidence rather than the
+mismatched value; the qualitative pattern is unchanged.)
+
+**Updated honest statement:** within the high-confidence error regime, classifier
+confidence partly separates I from M (0.643). After residualizing against the *correct*
+seed-aware confidence, `plane_collapse` retains a moderate signal (0.681→0.620) — not
+reducible to confidence alone. `mc_var` collapses to chance (0.613→0.509) — mostly a
+confidence artifact. `evidential_u` remains strong but stays inverted (0.732→0.680).
+`ignorance`, the originally-intended axis, stays weak throughout (0.585→0.561).
+
+### UQ semantic vs. inverse direction (I vs M; I vs A+M and A vs M moved to appendix)
+| score | semantic AUROC | inverse AUROC | residual semantic | residual inverse |
+|---|---|---|---|---|
+| evidential_u | 0.268 | 0.732 | 0.320 | 0.680 |
+| mc_ent | 0.352 | 0.648 | 0.401 | 0.599 |
+| mc_var | 0.387 | 0.613 | 0.509 | 0.491 |
+
+All three scalar UQ baselines are inverted in I vs M: discriminative only after reversing
+the semantically-expected direction (higher uncertainty should mean more insufficiency;
+observed is the opposite). This is **not** "UQ is uninformative" — it is "UQ's semantic
+direction is misaligned with human evidence-insufficiency," a different and more precise
+claim.
+
+### Range restriction: partially resolved — classifier confidence measured, UQ-baseline distributions still open
+**Resolved (2026-06-21):** classifier confidence (`our_conf_fixed`) range restriction is no
+longer a theoretical risk — it is now directly measured (see "Range restriction of the
+annotated subset" above). The 219 subset's confidence sits at ~87th percentile of the full
+189,162-row validation confidence distribution, with std only 7.4% of full-validation std.
+This substantially de-risks the original concern: the selection mechanism's own range
+restriction is now quantified rather than merely flagged.
+
+**Still open:** this measured the *classifier's own confidence* on full validation — it
+did NOT extract `evidential_u`, `mc_ent`, or `mc_var` (the actual scalar UQ baselines) on
+the full validation set, only on the 219-row confident-error subset. Whether *those specific
+baselines'* distributions are similarly truncated by confident-error selection — which
+could independently contribute to or explain their inverted direction — remains
+unconfirmed. Resolving this fully requires running the evidential model and MC-dropout
+inference across all 63,054 full-validation examples (not just the 219), which has not yet
+been done. Logged as a narrower, more precisely-scoped open question than before, not as
+fully closed.
+
+### Updated final interpretation (locked framing, revised 2026-06-21)
+**Do NOT claim:**
+- "The ignorance axis detects evidence insufficiency."
+- "UQ baselines generally fail on the full validation set."
+- "plane_collapse is a validated main metric."
+- "EpistemicBERT beats UQ baselines."
+
+**Use this thesis instead:** Explicit uncertainty axes, especially the intended
+`ignorance` axis, do not robustly recover human evidence-insufficiency labels (I vs M
+0.585 raw, 0.561 after correct seed-aware confidence residualization — both weak). A
+post-hoc evidence-plane-collapse composite (`plane_collapse`) emerges as a moderate
+diagnostic of human-insufficient failures *within the high-confidence error regime*
+(0.681 → 0.620 after residualization) and is not reducible to classifier confidence alone.
+Scalar UQ baselines (evidential_u, mc_ent, mc_var) are not simply uninformative — their
+*semantic direction* is misaligned with evidence insufficiency, with stronger signal
+appearing only in the inverse direction (e.g. evidential_u: semantic 0.268, inverse
+0.732 → 0.680 after residualization). All of the above is now explicitly conditioned on
+the *measured* (not merely flagged) range-restriction of the annotated subset: its mean
+classifier confidence (0.978) sits near the 87th percentile of the full-validation
+confidence distribution (0.755 mean), so every comparison above describes the
+high-confidence-error regime specifically, not full-validation uncertainty ranking.
+The schema-free `anchor` axis remains independent and corruption-sensitive but
+insufficient for human typing (unchanged from the prior entry).
+
+### Qualitative case studies (illustrative, for Results/appendix)
+- **Derrick Henry (human I):** claim about a high-school record; evidence describes a 2018
+  game; standard UQ very low, plane_collapse high — insufficiency as weak evidence-plane
+  commitment rather than high UQ.
+- **Jahron Brathwaite (human M):** claim "born after 1990"; evidence "born July 3, 1993"
+  (sufficient); model predicts REFUTES; UQ higher — UQ reacting to reasoning instability,
+  not evidence absence.
+- **Equalizer 2 (boundary):** "$146 million" vs "over $146 million" — label-sensitive,
+  appendix.
+- **Electronic dance music (anchor false positive):** anchor high but human M — anchor
+  reacts to surface/referential mismatch without uniquely recovering human insufficiency.
+
+### Next steps
+- **Lock Phase 1** — save `PHASE1_LOCKED_RESULTS_v3.txt` using `our_conf_fixed` (seed-aware)
+  throughout; stop adding new probes (diminishing returns).
+- **Do not add a Semantic Entropy baseline yet** — mention only as a future/appendix modern
+  generative-UQ baseline; today's results stay classifier-side.
+- **Prepare 50-sample blind test-retest file** (codebook-only, gap, includes the
+  registered probes: id14/15, the 7 corrections, id66/id141).
+- **Prepare 50-sample second-annotator file** (codebook-only, blind, inter-rater κ).
+- **Compute Cohen's κ** after relabeling; then write Results from locked tables.
+- **Optional later (narrower range-restriction check):** extract `evidential_u`/`mc_ent`/
+  `mc_var` themselves (not just classifier confidence) on the FULL validation set, to test
+  whether those specific baselines' distributions are also truncated by confident-error
+  selection — the classifier-confidence restriction is now confirmed, but the UQ-baseline-
+  specific version of this question is still open (see above).

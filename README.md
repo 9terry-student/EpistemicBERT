@@ -20,8 +20,18 @@ measurement source.
 > (unchanged, still valid — see "NLI Stage" below). v2.1 adds the full VitaminC
 > human-relabeling study: the leakage diagnosis, blind-protocol codebook, axis-level and
 > ensemble-level failure mechanisms, two v3-prototype frame-check attempts (spaCy/GLiNER),
+> a post-hoc evidence-plane-collapse diagnostic (exploratory, not pre-registered), a
+> traced-and-fixed confidence-reconstruction bug (`baseline_scores.csv` pooled three
+> different seed checkpoints' rows), a directly-measured range-restriction check (the
+> annotated subset sits at the ~87th percentile of full-validation classifier confidence),
 > and an open question about gold-annotator page-context access. Status: test-retest κ
 > pending before the resulting paper is submission-ready.
+>
+> **EpistemicBERT's role in this project is as a diagnostic testbed, not a proposed
+> solution.** The six (now seven, diagnostically) axes are used to ask *whether*
+> model-internal uncertainty signals align with human evidence-sufficiency judgments — the
+> answer, so far, is that the explicit, pre-specified axes do not, and the strongest
+> aligned signal found is an exploratory post-hoc composite, not any of the original axes.
 
 ## Core Idea
 
@@ -149,6 +159,29 @@ same entity as the claim.
    fundamentally impossible** — the full available schema space (e.g., complete
    OntoNotes incl. LAW, or a substantially larger GLiNER label list) was not exhausted.
    Stopped here on diminishing-returns grounds, not because the question is resolved.
+
+7. **A post-hoc diagnostic, and a confidence-reconstruction bug found and fixed.** Direct
+   single-axis analysis showed the strongest separators of human I/M were not the explicit
+   uncertainty axes but the (inverted) evidence-plane axes, motivating a composite:
+   `plane_collapse = -mean(truth, error, contradiction)` — I vs M AUROC 0.681, validated by
+   a *label-free* SNLI corruption sanity check (P(corrupted > original) = 0.868). **This is
+   an exploratory, post-hoc diagnostic, not a pre-registered hypothesis** — it does not
+   revive the falsified explicit-uncertainty claim; it is a separately-discovered signal.
+   Investigating it surfaced a real bug: stored classifier confidence (`our_conf`) was not
+   reproducible from a single seed checkpoint (mean abs diff ≈0.07) because
+   `baseline_scores.csv` pools confident-error rows from *three different seed checkpoints*
+   (44+63+112=219) — confidence must be reconstructed per-`(seed, raw_idx)`, not from one
+   seed for all rows. After this fix (`our_conf_fixed`), residualizing each score against
+   confidence shows `plane_collapse` (0.681→0.620) and inverted `evidential_u` (0.732→0.680)
+   retain real signal beyond confidence, while `mc_var` (0.613→0.509) collapses to a
+   confidence artifact. **Range restriction was then directly measured** (not just
+   flagged): the 219-item subset's mean classifier confidence (0.978) sits at the ~87th
+   percentile of the full 189,162-row validation confidence distribution, with std only
+   7.4% of full-validation std — confirming every UQ comparison above describes a
+   high-confidence-error regime, conditionally, not full-validation ranking. (The
+   classifier-confidence range restriction is now resolved; whether `evidential_u`/
+   `mc_ent`/`mc_var` themselves are similarly restricted on full validation remains open —
+   those baselines were not yet extracted outside the 219-item subset.)
 
 **Open question (unresolved, disclosed not assumed):** whether VitaminC's original gold
 annotators saw Wikipedia `page`-title context (which would disambiguate subject-omitted
